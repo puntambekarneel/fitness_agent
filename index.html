@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Fitness Coach with Gemini</title>
+  <title>AI Fitness Coach with TensorFlow.js</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -27,6 +27,9 @@
       margin-top: 1rem;
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
 </head>
 <body>
   <h1>AI Fitness Coach</h1>
@@ -37,6 +40,8 @@
   <script>
     const coachMessage = document.getElementById("coach-message");
     const repCounter = document.getElementById("rep-counter");
+    let reps = 0;
+    let squatDown = false;
 
     async function initWebcam() {
       const video = document.getElementById("webcam");
@@ -47,45 +52,46 @@
         console.log("✅ Webcam stream initialized");
       } catch (err) {
         console.error("❌ Camera error:", err);
-        coachMessage.innerText = "Camera access denied or not supported. Please enable it in your browser settings.";
+        coachMessage.innerText = "Camera access denied or not supported.";
         alert("Camera access denied: " + err.message);
       }
     }
 
-    async function analyzeFrameWithGemini(imageBlob) {
-      // Simulated response
-      const mockFeedback = {
-        corrected: true,
-        repIncrease: Math.random() > 0.5
-      };
-      return mockFeedback;
-    }
-
-    async function startGeminiPoseAnalysis() {
+    async function startPoseDetection() {
       const video = document.getElementById("webcam");
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
+      const detectorConfig = {
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+      };
+      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
 
-      canvas.width = 480;
-      canvas.height = 360;
-      let reps = 0;
-
-      async function analyze() {
+      async function detectPose() {
         if (video.readyState >= 2) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(async (blob) => {
-            const feedback = await analyzeFrameWithGemini(blob);
-            if (feedback.repIncrease) {
-              reps++;
-              repCounter.innerText = `Reps: ${reps}`;
-              speak(`Nice one! ${reps} reps done`);
+          const poses = await detector.estimatePoses(video);
+          if (poses.length > 0) {
+            const keypoints = poses[0].keypoints;
+            const leftKnee = keypoints.find(p => p.name === 'left_knee');
+            const leftHip = keypoints.find(p => p.name === 'left_hip');
+            const leftAnkle = keypoints.find(p => p.name === 'left_ankle');
+
+            if (leftHip && leftKnee && leftAnkle && leftHip.score > 0.5 && leftKnee.score > 0.5 && leftAnkle.score > 0.5) {
+              const hipToKnee = leftHip.y - leftKnee.y;
+              const kneeToAnkle = leftKnee.y - leftAnkle.y;
+
+              if (hipToKnee < kneeToAnkle && !squatDown) {
+                squatDown = true;
+              } else if (hipToKnee > kneeToAnkle && squatDown) {
+                squatDown = false;
+                reps++;
+                repCounter.innerText = `Reps: ${reps}`;
+                speak(`Nice squat! ${reps} reps done`);
+              }
             }
-          }, 'image/jpeg');
+          }
         }
-        setTimeout(analyze, 1500);
+        requestAnimationFrame(detectPose);
       }
 
-      analyze();
+      detectPose();
     }
 
     function speak(text) {
@@ -99,7 +105,7 @@
       await initWebcam();
       setTimeout(() => {
         speak("Let's begin with squats. Keep your form right!");
-        startGeminiPoseAnalysis();
+        startPoseDetection();
       }, 1000);
     }
 
