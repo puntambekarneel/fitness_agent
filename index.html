@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Fitness Coach</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f0f4f8;
+    }
+    .container {
+      padding: 2rem;
+    }
+    video, canvas {
+      display: block;
+      margin: 1rem auto;
+    }
+    #rep-counter {
+      font-size: 1.5rem;
+      font-weight: bold;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>AI Fitness Coach</h1>
+    <div id="coach-message">Initializing...</div>
+    <video id="webcam" width="640" height="480" autoplay playsinline muted></video>
+    <canvas id="output" width="640" height="480"></canvas>
+    <div id="rep-counter">Reps: 0</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+
+  <script>
+    // coach-voice.js
+    async function speak(text) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      speechSynthesis.speak(utterance);
+      document.getElementById('coach-message').innerText = text;
+    }
+
+    // pose.js
+    let detector, video;
+    let repCount = 0;
+    let down = false;
+
+    async function initPoseDetection() {
+      const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
+
+      video = document.getElementById('webcam');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+
+      video.onloadedmetadata = () => {
+        video.play();
+        detectPose();
+      };
+    }
+
+    async function detectPose() {
+      const canvas = document.getElementById('output');
+      const ctx = canvas.getContext('2d');
+
+      const detect = async () => {
+        const poses = await detector.estimatePoses(video);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        if (poses.length > 0) {
+          const keypoints = poses[0].keypoints;
+          const leftHip = keypoints[11];
+          const leftKnee = keypoints[13];
+
+          if (leftHip && leftKnee && leftHip.score > 0.5 && leftKnee.score > 0.5) {
+            const angle = leftHip.y - leftKnee.y;
+            if (angle > 40) down = true;
+            if (angle < 20 && down) {
+              down = false;
+              repCount++;
+              document.getElementById('rep-counter').innerText = `Reps: ${repCount}`;
+              speak(`Great job! That's ${repCount}`);
+            }
+          }
+        }
+
+        requestAnimationFrame(detect);
+      };
+
+      detect();
+    }
+
+    // script.js
+    async function initCoachSession() {
+      await speak("Good morning! Let's start with 10 squats. Ready?");
+      await initPoseDetection();
+    }
+
+    window.onload = initCoachSession;
+  </script>
+</body>
+</html>
